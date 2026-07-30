@@ -74,6 +74,17 @@ function jaFor(en, q){
 }
 
 /* ===== 出題選択（seedRng 済み前提） ===== */
+/* PREFER_FAMILY による固定化を避けるため「加重シャッフル」を使用。
+   familyCount が大きいほど出やすくなるが、完全固定にはならない。      */
+function weightedShuffle(arr){
+  // 各要素に weight = (familyCount+1) を割り当て、
+  // -log(rng()) / weight でソートすることで加重ランダム順を実現
+  return arr
+    .map(c => ({ c, key: -Math.log(rng() + 1e-9) / (c.familyCount + 1) }))
+    .sort((a, b) => a.key - b.key)
+    .map(x => x.c);
+}
+
 function pickQuestions(){
   const raw = WORD_POOL
     .filter(w => w.en.length >= MIN_LEN)
@@ -84,15 +95,17 @@ function pickQuestions(){
                len:w.en.length, key, familyCount:fam.size };
     });
 
+  // アナグラムグループから1語ずつランダムに選ぶ
   const byKey = new Map();
   for(const c of raw){ if(!byKey.has(c.key)) byKey.set(c.key, []); byKey.get(c.key).push(c); }
   const uniq = [...byKey.values()].map(group => shuffle(group)[0]);
 
+  // 長さ別に分けて、各バケットを「加重シャッフル」で並べる
   const byLen = {};
   for(const c of uniq){ (byLen[c.len] = byLen[c.len] || []).push(c); }
   for(const len in byLen){
-    shuffle(byLen[len]);
-    if(PREFER_FAMILY) byLen[len].sort((a,b)=>b.familyCount-a.familyCount);
+    // PREFER_FAMILY が true のときは加重シャッフル、false のときは通常シャッフル
+    byLen[len] = PREFER_FAMILY ? weightedShuffle(byLen[len]) : shuffle(byLen[len]);
   }
 
   const chosen = [];
@@ -102,7 +115,8 @@ function pickQuestions(){
   }
   if(chosen.length < NUM_QUESTIONS){
     const rest = Object.values(byLen).flat().filter(c => !chosen.includes(c));
-    rest.sort((a,b)=>a.len-b.len);
+    // 残りもシードに基づくランダム順で補充（長さ優先）
+    rest.sort((a,b) => a.len !== b.len ? a.len - b.len : rng() - 0.5);
     while(chosen.length < NUM_QUESTIONS && rest.length) chosen.push(rest.shift());
   }
   return chosen.slice(0, NUM_QUESTIONS);
