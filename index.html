@@ -22,6 +22,8 @@
 
   <button id="startBtn" disabled>読み込み中…</button>
 
+  <button id="rankingBtn">&#127942; ランキングを見る</button>
+
   <div id="codeSection">
     <div class="section-label">共有された同じ問題であそぶ</div>
     <div id="codeRow">
@@ -53,10 +55,22 @@
   <h2 id="scoreLine"></h2>
   <div id="resultCode"></div>
   <div id="resultList"></div>
+  <div id="registerBox"></div>
   <div id="resultBtns">
     <button id="homeBtn">ホームへ</button>
     <button id="restartBtn">もう一度</button>
   </div>
+</div>
+
+<div id="ranking" style="display:none;">
+  <div id="rankHeader">
+    <button id="rankBackBtn" class="icon-btn" title="戻る">&#8592;</button>
+    <h2 id="rankTitle"><span class="emoji">&#127942;</span> ランキング</h2>
+    <span style="width:40px;"></span>
+  </div>
+  <div id="rankTabs"></div>
+  <div id="rankSeedFilter"></div>
+  <div id="rankList"></div>
 </div>
 
 <script src="game.js"></script>

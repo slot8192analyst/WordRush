@@ -1,7 +1,7 @@
 /* ===== 設定 ===== */
 const NUM_QUESTIONS = 18;
 const TIME_LIMIT = 30, HINT_AT = 10;
-const PREFER_FAMILY = true;
+const PREFER_FAMILY = false;   // 完全ランダム出題（アナグラム優先をオフ）
 const MIN_LEN = 4;
 const DICT_URL = "words_alpha.txt";
 
@@ -18,6 +18,9 @@ const PT_PER_SEC    = 20;    // 残り1秒あたりのスピードボーナス
 const MODE_CODE = { junior:"JR", senior:"SR", common:"CT", toeic_s:"TS", toeic_g:"TG" };
 const CODE_MODE = Object.fromEntries(Object.entries(MODE_CODE).map(([k,v])=>[v,k]));
 
+/* ===== ランキングAPI（後で実装。今はダミー） ===== */
+const RANKING_API = "";  // 例: "https://your-worker.workers.dev"
+
 /* データ */
 let MODES = [];
 let WORDS_BY_MODE = {};
@@ -25,6 +28,7 @@ let DICT_BY_KEY = null;
 let WORD_POOL = [];
 let currentMode = null;
 let currentSeed = 0;
+let fromSharedCode = false;   // 共有コード由来かどうか
 
 const $ = id => document.getElementById(id);
 function letterKey(str){ return str.toLowerCase().split("").sort().join(""); }
@@ -48,6 +52,29 @@ function parseCode(str){
   const mode = CODE_MODE[m[1]];
   if(!mode) return null;
   return { mode, seed: parseInt(m[2],10) };
+}
+
+/* ===== 時刻表示（当日は相対、前日以前は絶対） ===== */
+function formatTime(ts){
+  const d = new Date(ts);
+  const now = new Date();
+  const sameDay = d.getFullYear()===now.getFullYear()
+               && d.getMonth()===now.getMonth()
+               && d.getDate()===now.getDate();
+  if(sameDay){
+    const diffSec = Math.max(0, Math.floor((now - d)/1000));
+    if(diffSec < 60) return "たった今";
+    const diffMin = Math.floor(diffSec/60);
+    if(diffMin < 60) return `${diffMin}分前`;
+    const diffHour = Math.floor(diffMin/60);
+    return `${diffHour}時間前`;
+  }
+  const y = d.getFullYear();
+  const mo = String(d.getMonth()+1).padStart(2,"0");
+  const da = String(d.getDate()).padStart(2,"0");
+  const h = String(d.getHours()).padStart(2,"0");
+  const mi = String(d.getMinutes()).padStart(2,"0");
+  return `${y}/${mo}/${da} ${h}:${mi}`;
 }
 
 /* ===== 辞書 ===== */
@@ -74,11 +101,9 @@ function jaFor(en, q){
 }
 
 /* ===== 出題選択（seedRng 済み前提） ===== */
-/* PREFER_FAMILY による固定化を避けるため「加重シャッフル」を使用。
-   familyCount が大きいほど出やすくなるが、完全固定にはならない。      */
+/* PREFER_FAMILY が true のときのみ familyCount による加重シャッフルを使う。
+   false（既定）なら完全ランダム。                                      */
 function weightedShuffle(arr){
-  // 各要素に weight = (familyCount+1) を割り当て、
-  // -log(rng()) / weight でソートすることで加重ランダム順を実現
   return arr
     .map(c => ({ c, key: -Math.log(rng() + 1e-9) / (c.familyCount + 1) }))
     .sort((a, b) => a.key - b.key)
@@ -100,11 +125,10 @@ function pickQuestions(){
   for(const c of raw){ if(!byKey.has(c.key)) byKey.set(c.key, []); byKey.get(c.key).push(c); }
   const uniq = [...byKey.values()].map(group => shuffle(group)[0]);
 
-  // 長さ別に分けて、各バケットを「加重シャッフル」で並べる
+  // 長さ別に分けて並べる
   const byLen = {};
   for(const c of uniq){ (byLen[c.len] = byLen[c.len] || []).push(c); }
   for(const len in byLen){
-    // PREFER_FAMILY が true のときは加重シャッフル、false のときは通常シャッフル
     byLen[len] = PREFER_FAMILY ? weightedShuffle(byLen[len]) : shuffle(byLen[len]);
   }
 
@@ -115,7 +139,6 @@ function pickQuestions(){
   }
   if(chosen.length < NUM_QUESTIONS){
     const rest = Object.values(byLen).flat().filter(c => !chosen.includes(c));
-    // 残りもシードに基づくランダム順で補充（長さ優先）
     rest.sort((a,b) => a.len !== b.len ? a.len - b.len : rng() - 0.5);
     while(chosen.length < NUM_QUESTIONS && rest.length) chosen.push(rest.shift());
   }
@@ -127,6 +150,7 @@ function buildValidSet(q){ const set = familyOf(letterKey(q.letters)); set.add(q
 
 let qi=0, validSet, poolKey, poolLen, timeLeft, timer, paused, qStart;
 let typed=[]; let results=[]; let totalScore=0;
+let usedPause=false;   // 一時停止を一度でも使ったか（ランキング対象外判定）
 
 function startQuestion(i){
   qi=i; const q=QUESTIONS[i];
@@ -202,7 +226,6 @@ function finishQuestion(ok, guess){
   const showIntended = ok && guess && guess !== intendedEn;
   const intended = showIntended ? { en:q.main.en, ja:q.main.ja } : null;
 
-  // スコア：基礎点(文字数×100) ＋ ボーナス(残り秒×20)。不正解・時間切れは0点
   const base  = ok ? shownEn.length * PT_PER_LETTER : 0;
   const bonus = ok ? remain * PT_PER_SEC : 0;
   const score = base + bonus;
@@ -240,7 +263,6 @@ function showResult(){
   });
   const afterCells = results.length * CELL_STEP;
 
-  // 合計スコアを大きく、正解数を副えて表示
   const scoreEl = $("scoreLine");
   scoreEl.innerHTML = `${totalScore.toLocaleString()} <small style="font-size:16px;color:var(--sub);">pts</small>`
                     + `<div style="font-size:15px;color:var(--sub);font-weight:700;margin-top:4px;">${okCount} / ${results.length} words</div>`;
@@ -269,6 +291,82 @@ function showResult(){
       `<div>${secHtml}</div>`;
     list.appendChild(row);
   });
+
+  // ランキング登録欄（一時停止を使っていない場合のみ）
+  renderScoreRegister(afterCells + 0.42 + results.length * ROW_STEP + 0.2);
+}
+
+/* ===== スコア登録欄（結果画面） ===== */
+function renderScoreRegister(delay){
+  const box = $("registerBox");
+  box.innerHTML = "";
+  box.style.setProperty("--d", delay + "s");
+  box.classList.remove("floatUp"); void box.offsetWidth; box.classList.add("floatUp");
+
+  if(usedPause){
+    box.innerHTML = `<div class="reg-disabled">一時停止を使ったため、このプレイはランキング対象外です</div>`;
+    return;
+  }
+  box.innerHTML = `
+    <div class="reg-title">ランキングに登録</div>
+    <div class="reg-row">
+      <input id="nameInput" type="text" maxlength="12" autocomplete="off" placeholder="名前を入力">
+      <button id="submitScore">登録</button>
+    </div>
+    <div id="regMsg">&nbsp;</div>`;
+
+  $("submitScore").onclick = async () => {
+    const name = ($("nameInput").value || "").trim().slice(0,12) || "名無し";
+    $("submitScore").disabled = true;
+    $("regMsg").textContent = "送信中…";
+    const okCount = results.filter(r=>r.ok).length;
+    try{
+      await submitScore({ name, mode: currentMode, seed: currentSeed, score: totalScore, okCount });
+      $("regMsg").style.color = "var(--brand)";
+      $("regMsg").textContent = "登録しました！";
+    }catch(err){
+      $("regMsg").style.color = "var(--bad)";
+      $("regMsg").textContent = "登録に失敗しました";
+      $("submitScore").disabled = false;
+    }
+  };
+}
+
+/* ===== ランキングAPI（後で中身を差し替え） ===== */
+/* スコア送信。API未接続時はローカルのダミーに保存する。 */
+async function submitScore({ name, mode, seed, score, okCount }){
+  const entry = { name, mode, seed, score, okCount, created_at: Date.now() };
+  if(RANKING_API){
+    const res = await fetch(RANKING_API + "/api/score", {
+      method:"POST", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify(entry),
+    });
+    if(!res.ok) throw new Error("submit failed");
+    return;
+  }
+  // --- ダミー（API未接続時） ---
+  const key = "wr_dummy_scores";
+  const arr = JSON.parse(localStorage.getItem(key) || "[]");
+  arr.push(entry);
+  localStorage.setItem(key, JSON.stringify(arr));
+}
+
+/* ランキング取得。API未接続時はダミーを返す。 */
+async function fetchRanking({ mode, seed }){
+  if(RANKING_API){
+    const url = new URL(RANKING_API + "/api/ranking");
+    url.searchParams.set("mode", mode);
+    if(seed != null) url.searchParams.set("seed", seed);
+    const res = await fetch(url);
+    if(!res.ok) throw new Error("fetch failed");
+    return await res.json();
+  }
+  // --- ダミー（API未接続時） ---
+  const arr = JSON.parse(localStorage.getItem("wr_dummy_scores") || "[]");
+  let rows = arr.filter(r => r.mode === mode);
+  if(seed != null) rows = rows.filter(r => r.seed === seed);
+  rows.sort((a,b) => b.score - a.score || a.created_at - b.created_at);
+  return rows.slice(0, 50);
 }
 
 /* ===== 画面操作 ===== */
@@ -282,6 +380,7 @@ $("skipBtn").onclick=(e)=>{e.stopPropagation(); if(!paused) finishQuestion(false
 $("shuffleBtn").onclick=(e)=>{e.stopPropagation(); if(paused)return;
   renderLetters(shuffle(QUESTIONS[qi].letters.split(""))); clearInput();};
 $("pauseBtn").onclick=(e)=>{e.stopPropagation(); paused=!paused;
+  if(paused) usedPause=true;   // 一度でも押したら記録（戻さない）
   $("pauseBtn").innerHTML=paused?"&#9654;":"&#10073;&#10073;";
   $("msg").textContent=paused?"一時停止中":`第 ${qi+1} 問 / ${QUESTIONS.length}`;};
 
@@ -323,6 +422,7 @@ function selectMode(id){
 $("startBtn").onclick=()=>{
   if($("startBtn").disabled || !selectedMode) return;
   const seed = (Math.random()*9000 + 1000) | 0;
+  fromSharedCode = false;
   startGame(selectedMode, seed);
 };
 
@@ -334,12 +434,137 @@ $("codeBtn").onclick=()=>{
     msg.textContent="そのモードはまだ準備中です"; return;
   }
   msg.textContent="";
+  fromSharedCode = true;
   startGame(parsed.mode, parsed.seed);
 };
 $("codeInput").addEventListener("keydown",(e)=>{ if(e.key==="Enter") $("codeBtn").click(); });
 
 $("homeBtn").onclick=()=>{ $("result").style.display="none"; $("home").style.display="flex"; };
-$("restartBtn").onclick=()=>{ $("result").style.display="none"; startGame(currentMode, currentSeed); };
+$("restartBtn").onclick=()=>{
+  $("result").style.display="none";
+  // 共有コード由来なら同じ問題、通常プレイなら新しい問題
+  const seed = fromSharedCode ? currentSeed : (Math.random()*9000 + 1000) | 0;
+  startGame(currentMode, seed);
+};
+
+/* ===== ランキング画面 ===== */
+$("rankingBtn").onclick=()=>{ openRanking(selectedMode, null); };
+$("rankBackBtn").onclick=()=>{ $("ranking").style.display="none"; $("home").style.display="flex"; };
+
+let rankMode = null;   // 現在表示中のモード
+let rankSeed = null;   // 現在の絞り込みシード（nullなら全体）
+
+function openRanking(mode, seed){
+  rankMode = mode || (MODES[0] && MODES[0].id);
+  rankSeed = seed;
+  $("home").style.display="none";
+  $("result").style.display="none";
+  $("game").style.display="none";
+  $("ranking").style.display="flex";
+  renderRankModeTabs();
+  renderRankSeedFilter();
+  loadAndRenderRanking();
+}
+
+function renderRankModeTabs(){
+  const box = $("rankTabs"); box.innerHTML="";
+  MODES.forEach(m=>{
+    const enough = (WORDS_BY_MODE[m.id]||[]).length >= NUM_QUESTIONS;
+    if(!enough) return;
+    const tab = document.createElement("button");
+    tab.className = "rank-tab" + (m.id===rankMode ? " active" : "");
+    tab.textContent = m.label;
+    tab.onclick = ()=>{ rankMode = m.id; rankSeed = null; renderRankModeTabs(); renderRankSeedFilter(); loadAndRenderRanking(); };
+    box.appendChild(tab);
+  });
+}
+
+function renderRankSeedFilter(){
+  const box = $("rankSeedFilter");
+  if(rankSeed != null){
+    box.innerHTML = `
+      <span class="seed-chip">ID <b>${makeCode(rankMode, rankSeed)}</b> で絞り込み中</span>
+      <button id="clearSeedBtn" class="seed-clear">解除</button>`;
+    $("clearSeedBtn").onclick = ()=>{ rankSeed = null; renderRankSeedFilter(); loadAndRenderRanking(); };
+  }else{
+    box.innerHTML = `<span class="seed-hint">モード全体のランキング（各行のIDをタップでそのシードだけ表示）</span>`;
+  }
+}
+
+async function loadAndRenderRanking(){
+  const list = $("rankList");
+  list.innerHTML = `<div class="rank-loading">読み込み中…</div>`;
+  let rows;
+  try{
+    rows = await fetchRanking({ mode: rankMode, seed: rankSeed });
+  }catch(err){
+    list.innerHTML = `<div class="rank-loading">読み込みに失敗しました</div>`;
+    return;
+  }
+  if(!rows || rows.length===0){
+    list.innerHTML = `<div class="rank-loading">まだ記録がありません</div>`;
+    return;
+  }
+  list.innerHTML = "";
+  rows.forEach((r,i)=>{
+    const code = makeCode(r.mode, r.seed);
+    const rankNo = i+1;
+    const medal = rankNo<=3 ? `<span class="medal m${rankNo}">${rankNo}</span>` : `<span class="rankno">${rankNo}</span>`;
+    const row = document.createElement("div");
+    row.className = "rank-row";
+    row.innerHTML = `
+      <div class="rank-left">
+        ${medal}
+        <div class="rank-info">
+          <div class="rank-name">${escapeHtml(r.name)}</div>
+          <div class="rank-time">${formatTime(r.created_at)}</div>
+        </div>
+      </div>
+      <div class="rank-right">
+        <div class="rank-score">${Number(r.score).toLocaleString()}<small> pts</small></div>
+        <button class="rank-seed" data-mode="${r.mode}" data-seed="${r.seed}" title="このシードで絞り込み">${code}</button>
+      </div>`;
+    list.appendChild(row);
+  });
+
+  // 各行のIDボタン：クリックでそのシードに絞り込み、長押し/右クリックでコピー
+  list.querySelectorAll(".rank-seed").forEach(btn=>{
+    btn.onclick = ()=>{
+      rankSeed = parseInt(btn.dataset.seed,10);
+      renderRankSeedFilter();
+      loadAndRenderRanking();
+    };
+  });
+
+  // コピーボタン（絞り込み中のときだけ、上部にまとめて出す）
+  renderSeedCopy();
+}
+
+function renderSeedCopy(){
+  const box = $("rankSeedFilter");
+  if(rankSeed == null) return;
+  const code = makeCode(rankMode, rankSeed);
+  const btn = document.createElement("button");
+  btn.className = "seed-copy";
+  btn.textContent = "IDをコピー";
+  btn.onclick = async ()=>{
+    try{
+      await navigator.clipboard.writeText(code);
+      btn.textContent = "コピーしました！";
+      setTimeout(()=>{ btn.textContent = "IDをコピー"; }, 1500);
+    }catch{
+      btn.textContent = "コピー失敗";
+      setTimeout(()=>{ btn.textContent = "IDをコピー"; }, 1500);
+    }
+  };
+  box.appendChild(btn);
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => (
+    {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]
+  ));
+}
 
 /* 1ゲーム開始（モードとシードを固定） */
 function startGame(mode, seed){
@@ -349,7 +574,8 @@ function startGame(mode, seed){
   QUESTIONS = pickQuestions();
   results = [];
   totalScore = 0;
-  $("home").style.display="none"; $("result").style.display="none";
+  usedPause = false;
+  $("home").style.display="none"; $("result").style.display="none"; $("ranking").style.display="none";
   $("game").style.display="flex";
   renderBoard(); startQuestion(0);
 }
