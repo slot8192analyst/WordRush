@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Word Rush</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Emoji&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="loading">読み込み中…</div>
+
+<div id="home" style="display:none;">
+  <h1 id="homeTitle">WORD<span>RUSH</span></h1>
+
+  <div id="modeSection">
+    <div class="section-label">MODE</div>
+    <div id="modeList"></div>
+  </div>
+
+  <button id="startBtn" disabled>読み込み中…</button>
+
+  <div id="codeSection">
+    <div class="section-label">共有された同じ問題であそぶ</div>
+    <div id="codeRow">
+      <input id="codeInput" type="text" inputmode="text" autocomplete="off"
+             placeholder="例: JR-4821" maxlength="12">
+      <button id="codeBtn">GO</button>
+    </div>
+    <div id="codeMsg">&nbsp;</div>
+  </div>
+</div>
+
+<div id="game" style="display:none;">
+  <div id="board"></div>
+  <div id="hud">
+    <button class="icon-btn" id="pauseBtn" title="一時停止">&#10073;&#10073;</button>
+    <div id="timer">30<small>s</small></div>
+    <button class="icon-btn" id="shuffleBtn" title="シャッフル">&#128256;</button>
+  </div>
+  <div id="answer">&nbsp;</div>
+  <div id="typedRow"><span id="typed"></span><button id="eraser" title="消去">&#9003;</button></div>
+  <div id="hint">&nbsp;</div>
+  <div id="letters"></div>
+  <div id="footer"><button id="skipBtn">スキップ</button></div>
+  <div id="msg"></div>
+</div>
+
+<div id="result">
+  <div id="resultBoard"></div>
+  <h2 id="scoreLine"></h2>
+  <div id="resultCode"></div>
+  <div id="resultList"></div>
+  <div id="resultBtns">
+    <button id="homeBtn">ホームへ</button>
+    <button id="restartBtn">もう一度</button>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
