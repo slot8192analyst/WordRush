@@ -13,7 +13,7 @@ export async function onRequestPost({ request, env }) {
       !VALID_MODES.includes(mode) ||
       !Number.isInteger(seed) || seed < 0 ||
       !Number.isInteger(score) || score < 0 || score > 1000000 ||
-      !Number.isInteger(okCount) || okCount < 0 || okCount > 18
+      !Number.isInteger(okCount) || okCount < 0 || okCount > 12
     ) {
       return Response.json({ error: "invalid payload" }, { status: 400 });
     }

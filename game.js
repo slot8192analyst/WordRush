@@ -1,18 +1,21 @@
 /* ===== 設定 ===== */
-const NUM_QUESTIONS = 18;
+const NUM_QUESTIONS = 12;
 const TIME_LIMIT = 30, HINT_AT = 10;
 const PREFER_FAMILY = false;   // 完全ランダム出題（アナグラム優先をオフ）
 const MIN_LEN = 4;
 const DICT_URL = "words_alpha.txt";
 
 const LENGTH_PLAN = [
-  { len:4, count:4 }, { len:5, count:4 }, { len:6, count:4 },
-  { len:7, count:3 }, { len:8, count:3 },
+  { len:4, count:3 },   // 25%
+  { len:5, count:4 },   // 33%
+  { len:6, count:2 },
+  { len:7, count:2 },
+  { len:8, count:1 },   // 6文字以上で 5問（42%）
 ];
 
 /* スコア配点 */
-const PT_PER_LETTER = 100;   // 1文字あたりの基礎点
-const PT_PER_SEC    = 20;    // 残り1秒あたりのスピードボーナス
+const PT_PER_LETTER = 30;   // 基礎点 = 文字数² × これ（全体スケール）
+const PT_TIME_RATE  = 1.0;  // 時間ボーナス最大 = 基礎点 × これ（残り時間フル時）
 
 /* モードごとの短縮コード（IDの接頭辞） */
 const MODE_CODE = { junior:"JR", senior:"SR", common:"CT", toeic_s:"TS", toeic_g:"TG" };
@@ -226,8 +229,8 @@ function finishQuestion(ok, guess){
   const showIntended = ok && guess && guess !== intendedEn;
   const intended = showIntended ? { en:q.main.en, ja:q.main.ja } : null;
 
-  const base  = ok ? shownEn.length * PT_PER_LETTER : 0;
-  const bonus = ok ? remain * PT_PER_SEC : 0;
+  const base  = ok ? (shownEn.length * shownEn.length) * PT_PER_LETTER : 0;
+  const bonus = ok ? Math.round(base * PT_TIME_RATE * (remain / TIME_LIMIT)) : 0;
   const score = base + bonus;
   totalScore += score;
 
