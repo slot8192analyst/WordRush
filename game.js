@@ -19,7 +19,7 @@ const MODE_CODE = { junior:"JR", senior:"SR", common:"CT", toeic_s:"TS", toeic_g
 const CODE_MODE = Object.fromEntries(Object.entries(MODE_CODE).map(([k,v])=>[v,k]));
 
 /* ===== ランキングAPI（後で実装。今はダミー） ===== */
-const RANKING_API = "";  // 例: "https://your-worker.workers.dev"
+const RANKING_API = "https://wordrush-57z.pages.dev/";  // 例: "https://your-worker.workers.dev"
 
 /* データ */
 let MODES = [];
