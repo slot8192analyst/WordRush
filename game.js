@@ -14,7 +14,7 @@ const LENGTH_PLAN = [
 ];
 
 /* スコア配点 */
-const PT_PER_LETTER = 30;   // 基礎点 = 文字数² × これ（全体スケール）
+const PT_PER_LETTER = 80;   // 基礎点 = 文字数² × これ（全体スケール）
 const PT_TIME_RATE  = 1.0;  // 時間ボーナス最大 = 基礎点 × これ（残り時間フル時）
 
 /* モードごとの短縮コード（IDの接頭辞） */
@@ -229,7 +229,7 @@ function finishQuestion(ok, guess){
   const showIntended = ok && guess && guess !== intendedEn;
   const intended = showIntended ? { en:q.main.en, ja:q.main.ja } : null;
 
-  const base  = ok ? (shownEn.length * shownEn.length) * PT_PER_LETTER : 0;
+  const base  = ok ? Math.round(Math.pow(shownEn.length, 1.5) * PT_PER_LETTER) : 0;
   const bonus = ok ? Math.round(base * PT_TIME_RATE * (remain / TIME_LIMIT)) : 0;
   const score = base + bonus;
   totalScore += score;
